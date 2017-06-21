@@ -12,53 +12,58 @@ namespace SimpleSocketServer
     {
         static void Main(string[] args)
         {
+            int iterationCount = Convert.ToInt32(args[0]);
+            int clientsCount = Convert.ToInt32(args[1]);
+            int hitsCount = 0;
+            byte[] bytes = new byte[4];
             // Устанавливаем для сокета локальную конечную точку
             IPHostEntry ipHost = Dns.GetHostEntry("localhost");
             IPAddress ipAddr = ipHost.AddressList[0];
             IPEndPoint ipEndPoint = new IPEndPoint(ipAddr, 11000);
 
-            // Создаем сокет Tcp/Ip
+            // Создаем сокет Tcp
             Socket sListener = new Socket(ipAddr.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-
+            List<Socket> sockets = new List<Socket>();
             // Назначаем сокет локальной конечной точке и слушаем входящие сокеты
             try
             {
                 sListener.Bind(ipEndPoint);
-                sListener.Listen(10);
-
+                sListener.Listen(clientsCount);
+                Console.WriteLine("Ожидаем соединение через порт {0}", ipEndPoint);
                 // Начинаем слушать соединения
                 while (true)
                 {
-                    Console.WriteLine("Ожидаем соединение через порт {0}", ipEndPoint);
-
                     // Программа приостанавливается, ожидая входящее соединение
-                    Socket handler = sListener.Accept();
-                    string data = null;
+                    //Socket handler = sListener.Accept();
+                    sockets.Add(sListener.Accept());
+                    Console.Write("Подключено " + sockets.Count + " клиентов.\n");
 
-                    // Мы дождались клиента, пытающегося с нами соединиться
-
-                    byte[] bytes = new byte[1024];
-                    int bytesRec = handler.Receive(bytes);
-
-                    data += Encoding.UTF8.GetString(bytes, 0, bytesRec);
-
-                    // Показываем данные на консоли
-                    Console.Write("Полученный текст: " + data + "\n\n");
-
-                    // Отправляем ответ клиенту\
-                    string reply = "Спасибо за запрос в " + data.Length.ToString()
-                            + " символов";
-                    byte[] msg = Encoding.UTF8.GetBytes(reply);
-                    handler.Send(msg);
-
-                    if (data.IndexOf("<TheEnd>") > -1)
+                    if (sockets.Count == clientsCount)
                     {
-                        Console.WriteLine("Сервер завершил соединение с клиентом.");
+                        foreach (var handler in sockets)
+                        {
+                            //Отправляем ответ клиенту в виде числа итераций
+                            byte[] msg = BitConverter.GetBytes(IPAddress.HostToNetworkOrder(iterationCount / clientsCount));
+                            handler.Send(msg);
+                        }
+                        for (int i=0;i<sockets.Count;i++)
+                        {
+                            byte[] outbytes = new byte[8];
+                            //Принимаем ответ от клиента
+                            sockets[i].Receive(outbytes);
+                            Array.Reverse(outbytes);
+                            int time = BitConverter.ToInt32(outbytes, 0);
+                            int res = BitConverter.ToInt32(outbytes, 4);
+                            hitsCount += res;
+                            // Показываем данные в консоли
+                            Console.Write("Клиент #"+ i + ": \nвернул значение, равное " + res + "\n");
+                            Console.Write("за " + time + " миллисекунд.\n\n");
+
+                            sockets[i].Shutdown(SocketShutdown.Both);
+                            sockets[i].Close();
+                        }
                         break;
                     }
-
-                    handler.Shutdown(SocketShutdown.Both);
-                    handler.Close();
                 }
             }
             catch (Exception ex)
@@ -67,7 +72,8 @@ namespace SimpleSocketServer
             }
             finally
             {
-                Console.ReadLine();
+                var pi = (double)hitsCount / iterationCount * 4;
+                Console.Write("\n\nPi равен " + Convert.ToString(pi) + "\n");
             }
         }
     }
